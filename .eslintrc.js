@@ -1,6 +1,6 @@
 module.exports = {
-  extends: ['next', 'prettier'],
-  plugins: ['unicorn'],
+  extends: ['next', 'prettier', 'plugin:eslint-plugin-next-on-pages/recommended'],
+  plugins: ['unicorn', 'eslint-plugin-next-on-pages'],
   rules: {
     'no-unused-vars': [
       'error',

@@ -31,6 +31,8 @@ export const metadata = {
     })
 };
 
+export const runtime = 'edge';
+
 export default async function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={GeistSans.variable}>

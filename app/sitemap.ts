@@ -13,6 +13,8 @@ const baseUrl = process.env.NEXT_PUBLIC_VERCEL_URL
 
 export const dynamic = 'force-dynamic';
 
+export const runtime = 'edge';
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   validateEnvironmentVariables();
 

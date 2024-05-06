@@ -87,10 +87,10 @@ export async function shopifyFetch<T>({
       ...(tags && { next: { tags } })
     });
 
-    const body = await result.json();
+    const body = (await result.json()) as T;
 
-    if (body.errors) {
-      throw body.errors[0];
+    if ((body as any).errors) {
+      throw (body as any).errors[0];
     }
 
     return {
@@ -338,6 +338,16 @@ export async function getCollections(): Promise<Collection[]> {
 }
 
 export async function getMenu(handle: string): Promise<Menu[]> {
+  if (handle === 'next-js-frontend-header-menu') {
+    return [
+      { title: 'All', path: '/search' },
+      { title: 'Latest Stuff', path: '/search/latest-stuff' },
+      { title: 'Casual Things', path: '/search/casual-things' }
+    ];
+  } else if (handle === 'next-js-frontend-footer-menu') {
+    return [{ title: 'Home', path: '/' }];
+  }
+
   const res = await shopifyFetch<ShopifyMenuOperation>({
     query: getMenuQuery,
     tags: [TAGS.collections],
