@@ -14,6 +14,9 @@ export function patchFetch(): void {
 
   (globalThis.fetch as Fetch)[patchFlagSymbol] = true;
   (globalThis as any)[patchFlagSymbol] = true;
+
+  // Let's opt out of Next.js' patching altogether
+  (globalThis.fetch as any).__nextPatched = true;
 }
 
 function applyPatch() {

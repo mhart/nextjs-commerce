@@ -1,7 +1,7 @@
 import { HIDDEN_PRODUCT_TAG, SHOPIFY_GRAPHQL_API_ENDPOINT, TAGS } from 'lib/constants';
 import { isShopifyError } from 'lib/type-guards';
 import { ensureStartsWith } from 'lib/utils';
-import { revalidateTag, unstable_cache } from 'next/cache';
+import { unstable_cache as cache, unstable_noStore as noStore, revalidateTag } from 'next/cache';
 import { headers } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import {
@@ -28,7 +28,6 @@ import {
   Collection,
   Connection,
   Image,
-  Menu,
   Page,
   ShopifyAddToCartOperation,
   ShopifyCart,
@@ -58,13 +57,11 @@ const key = process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN!;
 type ExtractVariables<T> = T extends { variables: object } ? T['variables'] : never;
 
 export async function shopifyFetch<T>({
-  cache = 'force-cache',
   headers,
   query,
   tags,
   variables
 }: {
-  cache?: RequestCache;
   headers?: HeadersInit;
   query: string;
   tags?: string[];
@@ -82,7 +79,6 @@ export async function shopifyFetch<T>({
         ...(query && { query }),
         ...(variables && { variables })
       }),
-      cache,
       ...(tags && { next: { tags } })
     });
 
@@ -201,9 +197,9 @@ const reshapeProducts = (products: ShopifyProduct[]) => {
 };
 
 export async function createCart(): Promise<Cart> {
+  noStore();
   const res = await shopifyFetch<ShopifyCreateCartOperation>({
-    query: createCartMutation,
-    cache: 'no-store'
+    query: createCartMutation
   });
 
   return reshapeCart(res.body.data.cartCreate.cart);
@@ -213,25 +209,25 @@ export async function addToCart(
   cartId: string,
   lines: { merchandiseId: string; quantity: number }[]
 ): Promise<Cart> {
+  noStore();
   const res = await shopifyFetch<ShopifyAddToCartOperation>({
     query: addToCartMutation,
     variables: {
       cartId,
       lines
-    },
-    cache: 'no-store'
+    }
   });
   return reshapeCart(res.body.data.cartLinesAdd.cart);
 }
 
 export async function removeFromCart(cartId: string, lineIds: string[]): Promise<Cart> {
+  noStore();
   const res = await shopifyFetch<ShopifyRemoveFromCartOperation>({
     query: removeFromCartMutation,
     variables: {
       cartId,
       lineIds
-    },
-    cache: 'no-store'
+    }
   });
 
   return reshapeCart(res.body.data.cartLinesRemove.cart);
@@ -241,24 +237,24 @@ export async function updateCart(
   cartId: string,
   lines: { id: string; merchandiseId: string; quantity: number }[]
 ): Promise<Cart> {
+  noStore();
   const res = await shopifyFetch<ShopifyUpdateCartOperation>({
     query: editCartItemsMutation,
     variables: {
       cartId,
       lines
-    },
-    cache: 'no-store'
+    }
   });
 
   return reshapeCart(res.body.data.cartLinesUpdate.cart);
 }
 
 export async function getCart(cartId: string): Promise<Cart | undefined> {
+  noStore();
   const res = await shopifyFetch<ShopifyCartOperation>({
     query: getCartQuery,
     variables: { cartId },
-    tags: [TAGS.cart],
-    cache: 'no-store'
+    tags: [TAGS.cart]
   });
 
   // Old carts becomes `null` when you checkout.
@@ -269,7 +265,7 @@ export async function getCart(cartId: string): Promise<Cart | undefined> {
   return reshapeCart(res.body.data.cart);
 }
 
-export const getCollection = unstable_cache(
+export const getCollection = cache(
   async (handle: string) => {
     const res = await shopifyFetch<ShopifyCollectionOperation>({
       query: getCollectionQuery,
@@ -284,7 +280,7 @@ export const getCollection = unstable_cache(
   { tags: [TAGS.collections] }
 );
 
-export const getCollectionProducts = unstable_cache(
+export const getCollectionProducts = cache(
   async ({
     collection,
     reverse,
@@ -315,7 +311,7 @@ export const getCollectionProducts = unstable_cache(
   { tags: [TAGS.collections, TAGS.products] }
 );
 
-export const getCollections = unstable_cache(
+export const getCollections = cache(
   async () => {
     const res = await shopifyFetch<ShopifyCollectionsOperation>({
       query: getCollectionsQuery,
@@ -347,37 +343,41 @@ export const getCollections = unstable_cache(
   { tags: [TAGS.collections] }
 );
 
-export async function getMenu(handle: string): Promise<Menu[]> {
-  if (handle === 'next-js-frontend-header-menu') {
-    return [
-      { title: 'All', path: '/search' },
-      { title: 'Latest Stuff', path: '/search/latest-stuff' },
-      { title: 'Casual Things', path: '/search/casual-things' }
-    ];
-  } else if (handle === 'next-js-frontend-footer-menu') {
-    return [{ title: 'Home', path: '/' }];
-  }
-
-  const res = await shopifyFetch<ShopifyMenuOperation>({
-    query: getMenuQuery,
-    tags: [TAGS.collections],
-    variables: {
-      handle
+export const getMenu = cache(
+  async (handle: string) => {
+    if (handle === 'next-js-frontend-header-menu') {
+      return [
+        { title: 'All', path: '/search' },
+        { title: 'Latest Stuff', path: '/search/latest-stuff' },
+        { title: 'Casual Things', path: '/search/casual-things' }
+      ];
+    } else if (handle === 'next-js-frontend-footer-menu') {
+      return [{ title: 'Home', path: '/' }];
     }
-  });
 
-  return (
-    res.body?.data?.menu?.items.map((item: { title: string; url: string }) => ({
-      title: item.title,
-      path: item.url.replace(domain, '').replace('/collections', '/search').replace('/pages', '')
-    })) || []
-  );
-}
+    const res = await shopifyFetch<ShopifyMenuOperation>({
+      query: getMenuQuery,
+      tags: [TAGS.collections],
+      variables: {
+        handle
+      }
+    });
+
+    return (
+      res.body?.data?.menu?.items.map((item: { title: string; url: string }) => ({
+        title: item.title,
+        path: item.url.replace(domain, '').replace('/collections', '/search').replace('/pages', '')
+      })) || []
+    );
+  },
+  ['getMenu'],
+  { tags: [TAGS.collections] }
+);
 
 export async function getPage(handle: string): Promise<Page> {
+  noStore();
   const res = await shopifyFetch<ShopifyPageOperation>({
     query: getPageQuery,
-    cache: 'no-store',
     variables: { handle }
   });
 
@@ -385,15 +385,15 @@ export async function getPage(handle: string): Promise<Page> {
 }
 
 export async function getPages(): Promise<Page[]> {
+  noStore();
   const res = await shopifyFetch<ShopifyPagesOperation>({
-    query: getPagesQuery,
-    cache: 'no-store'
+    query: getPagesQuery
   });
 
   return removeEdgesAndNodes(res.body.data.pages);
 }
 
-export const getProduct = unstable_cache(
+export const getProduct = cache(
   async (handle: string) => {
     const res = await shopifyFetch<ShopifyProductOperation>({
       query: getProductQuery,
@@ -409,7 +409,7 @@ export const getProduct = unstable_cache(
   { tags: [TAGS.products] }
 );
 
-export const getProductRecommendations = unstable_cache(
+export const getProductRecommendations = cache(
   async (productId: string) => {
     const res = await shopifyFetch<ShopifyProductRecommendationsOperation>({
       query: getProductRecommendationsQuery,
@@ -425,7 +425,7 @@ export const getProductRecommendations = unstable_cache(
   { tags: [TAGS.products] }
 );
 
-export const getProducts = unstable_cache(
+export const getProducts = cache(
   async ({ query, reverse, sortKey }: { query?: string; reverse?: boolean; sortKey?: string }) => {
     const res = await shopifyFetch<ShopifyProductsOperation>({
       query: getProductsQuery,
