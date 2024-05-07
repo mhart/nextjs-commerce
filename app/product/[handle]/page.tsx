@@ -51,7 +51,13 @@ export async function generateMetadata({
   };
 }
 
-export default async function ProductPage({ params }: { params: { handle: string } }) {
+export default async function ProductPage({
+  params,
+  searchParams
+}: {
+  params: { handle: string };
+  searchParams?: Record<string, string>;
+}) {
   const product = await getProduct(params.handle);
 
   if (!product) return notFound();
@@ -72,6 +78,11 @@ export default async function ProductPage({ params }: { params: { handle: string
       lowPrice: product.priceRange.minVariantPrice.amount
     }
   };
+
+  const selectedKey = Object.entries({ image: '0', ...searchParams })
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .flat()
+    .join();
 
   return (
     <>
@@ -102,7 +113,21 @@ export default async function ProductPage({ params }: { params: { handle: string
             <ProductDescription product={product} />
           </div>
         </div>
-        <RelatedProducts id={product.id} />
+
+        {/*
+          Suspense with router navigations seems kinda jank.
+          You seem to have a choice of:
+            1.  No content flash, but having to wait for all data
+                to load, even if it's in a Suspense (like RelatedProducts
+                is here), before client components will render. OR:
+            2.  You provide a `key` that defines when Suspense should
+                re-render, which means it behaves correctly (client
+                components can render before the data loads), but
+                then you have a flash of content on navigations.
+        */}
+        <Suspense key={selectedKey} fallback={<RelatedProductsEmpty />}>
+          <RelatedProducts id={product.id} />
+        </Suspense>
       </div>
       <Footer />
     </>
@@ -136,6 +161,30 @@ async function RelatedProducts({ id }: { id: string }) {
                 sizes="(min-width: 1024px) 20vw, (min-width: 768px) 25vw, (min-width: 640px) 33vw, (min-width: 475px) 50vw, 100vw"
               />
             </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+async function RelatedProductsEmpty() {
+  const relatedProducts = Array.from({ length: 10 });
+  return (
+    <div className="py-8">
+      <h2 className="mb-4 text-2xl font-bold">Related Products</h2>
+      <ul className="flex w-full gap-4 overflow-x-auto pt-1">
+        {relatedProducts.map((_empty, ix) => (
+          <li
+            key={ix}
+            className="aspect-square w-full flex-none min-[475px]:w-1/2 sm:w-1/3 md:w-1/4 lg:w-1/5"
+          >
+            <GridTileImage
+              alt=""
+              src=""
+              fill
+              sizes="(min-width: 1024px) 20vw, (min-width: 768px) 25vw, (min-width: 640px) 33vw, (min-width: 475px) 50vw, 100vw"
+            />
           </li>
         ))}
       </ul>
