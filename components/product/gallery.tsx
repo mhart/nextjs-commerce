@@ -4,7 +4,6 @@ import { ArrowLeftIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
 import { GridTileImage } from 'components/grid/tile';
 import { createUrl } from 'lib/utils';
 import Image from 'next/image';
-import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 
 export function Gallery({ images }: { images: { src: string; altText: string }[] }) {
@@ -43,23 +42,25 @@ export function Gallery({ images }: { images: { src: string; altText: string }[]
         {images.length > 1 ? (
           <div className="absolute bottom-[15%] flex w-full justify-center">
             <div className="mx-auto flex h-11 items-center rounded-full border border-white bg-neutral-50/80 text-neutral-500 backdrop-blur dark:border-black dark:bg-neutral-900/80">
-              <Link
+              <button
                 aria-label="Previous product image"
-                href={previousUrl}
                 className={buttonClassName}
-                scroll={false}
+                onClick={() => {
+                  window.history.pushState(null, '', previousUrl);
+                }}
               >
                 <ArrowLeftIcon className="h-5" />
-              </Link>
+              </button>
               <div className="mx-1 h-6 w-px bg-neutral-500"></div>
-              <Link
+              <button
                 aria-label="Next product image"
-                href={nextUrl}
                 className={buttonClassName}
-                scroll={false}
+                onClick={() => {
+                  window.history.pushState(null, '', nextUrl);
+                }}
               >
                 <ArrowRightIcon className="h-5" />
-              </Link>
+              </button>
             </div>
           </div>
         ) : null}
@@ -75,11 +76,12 @@ export function Gallery({ images }: { images: { src: string; altText: string }[]
 
             return (
               <li key={image.src} className="h-20 w-20">
-                <Link
+                <button
                   aria-label="Enlarge product image"
-                  href={createUrl(pathname, imageSearchParams)}
-                  scroll={false}
                   className="h-full w-full"
+                  onClick={() => {
+                    window.history.pushState(null, '', createUrl(pathname, imageSearchParams));
+                  }}
                 >
                   <GridTileImage
                     alt={image.altText}
@@ -88,7 +90,7 @@ export function Gallery({ images }: { images: { src: string; altText: string }[]
                     height={80}
                     active={isActive}
                   />
-                </Link>
+                </button>
               </li>
             );
           })}

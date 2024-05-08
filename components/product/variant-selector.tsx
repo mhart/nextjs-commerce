@@ -3,7 +3,7 @@
 import clsx from 'clsx';
 import { ProductOption, ProductVariant } from 'lib/shopify/types';
 import { createUrl } from 'lib/utils';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 
 type Combination = {
   id: string;
@@ -18,7 +18,7 @@ export function VariantSelector({
   options: ProductOption[];
   variants: ProductVariant[];
 }) {
-  const router = useRouter();
+  // const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const hasNoOptionsOrJustOneOption =
@@ -82,7 +82,8 @@ export function VariantSelector({
               aria-disabled={!isAvailableForSale}
               disabled={!isAvailableForSale}
               onClick={() => {
-                router.replace(optionUrl, { scroll: false });
+                // router.replace(optionUrl, { scroll: false });
+                window.history.pushState(null, '', optionUrl);
               }}
               title={`${option.name} ${value}${!isAvailableForSale ? ' (Out of Stock)' : ''}`}
               className={clsx(
