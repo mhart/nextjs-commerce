@@ -109,7 +109,7 @@ export async function shopifyFetch<T>({
   }
 }
 
-const removeEdgesAndNodes = (array: Connection<any>) => {
+const removeEdgesAndNodes = <T>(array: Connection<T>) => {
   return array.edges.map((edge) => edge?.node);
 };
 
@@ -158,7 +158,7 @@ const reshapeImages = (images: Connection<Image>, productTitle: string) => {
   const flattened = removeEdgesAndNodes(images);
 
   return flattened.map((image) => {
-    const filename = image.url.match(/.*\/(.*)\..*/)[1];
+    const filename = image.url.match(/.*\/(.*)\..*/)?.[1]; // Add null check
     return {
       ...image,
       altText: image.altText || `${productTitle} - ${filename}`
@@ -176,7 +176,10 @@ const reshapeProduct = (product: ShopifyProduct, filterHiddenProducts: boolean =
   return {
     ...rest,
     images: reshapeImages(images, product.title),
-    variants: removeEdgesAndNodes(variants)
+    variants: removeEdgesAndNodes(variants).map((v) =>
+      // We'll make at least one variant unavailable for sale to demonstrate the feature.
+      v.title === 'Vintage Black / L' ? { ...v, availableForSale: false } : v
+    )
   };
 };
 
