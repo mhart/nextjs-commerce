@@ -18,7 +18,8 @@ export default {
         conf: { ...nextConfig, env },
         customServer: false,
         dev: false,
-        dir: ''
+        dir: '',
+        minimalMode: false
       }).getRequestHandler();
     }
 
@@ -28,13 +29,14 @@ export default {
       let imageUrl =
         url.searchParams.get('url') ?? 'https://developers.cloudflare.com/_astro/logo.BU9hiExz.svg';
       if (imageUrl.startsWith('/')) {
-        imageUrl = new URL(imageUrl, request.url).href;
+        return Response.redirect(new URL(imageUrl, request.url));
       }
       return fetch(imageUrl, { cf: { cacheEverything: true } } as any);
     }
 
     const resBody = new TransformStream();
     const writer = resBody.writable.getWriter();
+    let resBodyWritten = false;
 
     const reqBodyNodeStream = request.body ? Readable.fromWeb(request.body as any) : undefined;
 
@@ -44,8 +46,28 @@ export default {
       headers: Object.fromEntries([...request.headers]),
       bodyReadable: reqBodyNodeStream,
       resWriter: (chunk) => {
-        writer.write(chunk).catch(console.error);
-        return true;
+        try {
+          resBodyWritten = true;
+          writer.write(chunk).catch(console.error);
+          return true;
+        } catch (e) {
+          console.error(e);
+          throw e;
+        }
+      }
+    });
+
+    // Should add this to the mock implementation – only modify statusCode if not sent
+    (res as any)._statusCode = res.statusCode;
+    Object.defineProperty(res, 'statusCode', {
+      get: function () {
+        return this._statusCode;
+      },
+      set: function (val) {
+        if (this.finished || this.headersSent) {
+          return;
+        }
+        this._statusCode = val;
       }
     });
 
@@ -58,8 +80,16 @@ export default {
     if (reqBodyNodeStream != null) {
       const origPush = reqBodyNodeStream.push;
       reqBodyNodeStream.push = (chunk: any) => {
-        req.push(chunk);
-        return origPush.call(reqBodyNodeStream, chunk);
+        console.log('in reqBodyNodeStream.push', new Error().stack);
+        try {
+          req.push(chunk);
+          return origPush.call(reqBodyNodeStream, chunk);
+        } catch (e) {
+          console.error(e);
+          throw e;
+        } finally {
+          console.log('reqBodyNodeStream.push finished');
+        }
       };
     }
 
@@ -69,7 +99,9 @@ export default {
 
     await Promise.race([res.headPromise, headPromise]);
 
-    return new Response(resBody.readable, {
+    res.setHeader('content-encoding', 'identity');
+
+    return new Response(resBodyWritten ? resBody.readable : null, {
       status: res.statusCode,
       headers: (res as any).headers
     });
