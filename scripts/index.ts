@@ -2,8 +2,11 @@ import { Readable } from 'node:stream';
 
 import type { NextConfig } from 'next';
 import { NodeNextRequest, NodeNextResponse } from 'next/dist/server/base-http/node';
-import { createRequestResponseMocks } from 'next/dist/server/lib/mock-request';
+import { MockedResponse } from 'next/dist/server/lib/mock-request';
 import NextNodeServer, { NodeRequestHandler } from 'next/dist/server/next-server';
+import type { IncomingMessage } from 'node:http';
+
+const NON_BODY_RESPONSES = new Set([101, 204, 205, 304]);
 
 // Injected at build time
 const nextConfig: NextConfig = JSON.parse(process.env.__NEXT_PRIVATE_STANDALONE_CONFIG ?? '{}');
@@ -34,76 +37,87 @@ export default {
       return fetch(imageUrl, { cf: { cacheEverything: true } } as any);
     }
 
-    const resBody = new TransformStream();
-    const writer = resBody.writable.getWriter();
-    let resBodyWritten = false;
-
-    const reqBodyNodeStream = request.body ? Readable.fromWeb(request.body as any) : undefined;
-
-    const { req, res } = createRequestResponseMocks({
-      method: request.method,
-      url: url.href.slice(url.origin.length),
-      headers: Object.fromEntries([...request.headers]),
-      bodyReadable: reqBodyNodeStream,
-      resWriter: (chunk) => {
-        try {
-          resBodyWritten = true;
-          writer.write(chunk).catch(console.error);
-          return true;
-        } catch (e) {
-          console.error(e);
-          throw e;
-        }
-      }
-    });
-
-    // Should add this to the mock implementation – only modify statusCode if not sent
-    (res as any)._statusCode = res.statusCode;
-    Object.defineProperty(res, 'statusCode', {
-      get: function () {
-        return this._statusCode;
-      },
-      set: function (val) {
-        if (this.finished || this.headersSent) {
-          return;
-        }
-        this._statusCode = val;
-      }
-    });
-
-    let headPromiseResolve: any = null;
-    const headPromise = new Promise<void>((resolve) => {
-      headPromiseResolve = resolve;
-    });
-    res.flushHeaders = () => headPromiseResolve?.();
-
-    if (reqBodyNodeStream != null) {
-      const origPush = reqBodyNodeStream.push;
-      reqBodyNodeStream.push = (chunk: any) => {
-        console.log('in reqBodyNodeStream.push', new Error().stack);
-        try {
-          req.push(chunk);
-          return origPush.call(reqBodyNodeStream, chunk);
-        } catch (e) {
-          console.error(e);
-          throw e;
-        } finally {
-          console.log('reqBodyNodeStream.push finished');
-        }
-      };
-    }
-
-    ctx.waitUntil((res as any).hasStreamed.then(() => writer.close()));
+    const { req, res, webResponse } = getWrappedStreams(request, ctx);
 
     ctx.waitUntil(requestHandler(new NodeNextRequest(req), new NodeNextResponse(res)));
 
-    await Promise.race([res.headPromise, headPromise]);
-
-    res.setHeader('content-encoding', 'identity');
-
-    return new Response(resBodyWritten ? resBody.readable : null, {
-      status: res.statusCode,
-      headers: (res as any).headers
-    });
+    return await webResponse();
   }
 };
+
+function getWrappedStreams(request: Request, ctx: any) {
+  const url = new URL(request.url);
+  const req = (
+    request.body ? Readable.fromWeb(request.body as any) : Readable.from([])
+  ) as IncomingMessage;
+  req.httpVersion = '1.0';
+  req.httpVersionMajor = 1;
+  req.httpVersionMinor = 0;
+  req.url = url.href.slice(url.origin.length);
+  req.headers = Object.fromEntries([...request.headers]);
+  req.method = request.method;
+  Object.defineProperty(req, 'headersDistinct', {
+    get() {
+      const headers: Record<string, string[]> = {};
+      for (const [key, value] of Object.entries(req.headers)) {
+        if (!value) continue;
+        headers[key] = Array.isArray(value) ? value : [value];
+      }
+      return headers;
+    }
+  });
+
+  const { readable, writable } = new IdentityTransformStream();
+  const resBodyWriter = writable.getWriter();
+
+  const res = new MockedResponse({
+    resWriter: (chunk) => {
+      resBodyWriter.write(typeof chunk === 'string' ? Buffer.from(chunk) : chunk).catch((err) => {
+        if (
+          err.message.includes('WritableStream has been closed') ||
+          err.message.includes('Network connection lost')
+        ) {
+          // safe to ignore
+          return;
+        }
+        console.error('Error in resBodyWriter.write');
+        console.error(err);
+      });
+      return true;
+    }
+  });
+
+  // It's implemented as a no-op, but really it should mark the headers as done
+  res.flushHeaders = () => (res as any).headPromiseResolve();
+
+  // Only allow statusCode to be modified if not sent
+  let { statusCode } = res;
+  Object.defineProperty(res, 'statusCode', {
+    get: function () {
+      return statusCode;
+    },
+    set: function (val) {
+      if (this.finished || this.headersSent) {
+        return;
+      }
+      statusCode = val;
+    }
+  });
+
+  // Make sure the writer is eventually closed
+  ctx.waitUntil((res as any).hasStreamed.finally(() => resBodyWriter.close().catch(() => {})));
+
+  return {
+    res,
+    req,
+    webResponse: async () => {
+      await res.headPromise;
+      // TODO: remove this once streaming with compression is working nicely
+      res.setHeader('content-encoding', 'identity');
+      return new Response(NON_BODY_RESPONSES.has(res.statusCode) ? null : readable, {
+        status: res.statusCode,
+        headers: (res as any).headers
+      });
+    }
+  };
+}

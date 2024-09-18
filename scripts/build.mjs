@@ -271,8 +271,8 @@ contents = contents.replace(
                   '_client-reference-manifest.js',
                   ''
                 )}": globalThis.__RSC_MANIFEST["${manifestJs
-        .replace('.next/server/app', '')
-        .replace('_client-reference-manifest.js', '')}"],
+                .replace('.next/server/app', '')
+                .replace('_client-reference-manifest.js', '')}"],
             },
           };
         }

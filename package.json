@@ -26,6 +26,7 @@
     "react-dom": "19.0.0-rc-206df66e-20240912"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240909.0",
     "@tailwindcss/container-queries": "^0.1.1",
     "@tailwindcss/typography": "^0.5.13",
     "@types/node": "20.14.12",
