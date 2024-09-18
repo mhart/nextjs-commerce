@@ -9,6 +9,7 @@ minify = false
 
 [experimental_assets]
 directory = ".next/assets"
+binding = "ASSETS"
 
 [alias]
 "critters" = "./scripts/shim-throw.mjs"

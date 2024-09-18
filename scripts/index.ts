@@ -32,7 +32,7 @@ export default {
       let imageUrl =
         url.searchParams.get('url') ?? 'https://developers.cloudflare.com/_astro/logo.BU9hiExz.svg';
       if (imageUrl.startsWith('/')) {
-        return Response.redirect(new URL(imageUrl, request.url));
+        return env.ASSETS.fetch(new URL(imageUrl, request.url));
       }
       return fetch(imageUrl, { cf: { cacheEverything: true } } as any);
     }
