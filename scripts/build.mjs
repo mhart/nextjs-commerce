@@ -117,7 +117,13 @@ fetch = globalThis.fetch;
 const CustomRequest = class extends globalThis.Request {
   constructor(input, init) {
     console.log("CustomRequest", input);
-    if (init) delete init.cache;
+    if (init) {
+      init = {
+        ...init,
+        cache: undefined,
+        body: init.body instanceof Readable ? Readable.toWeb(init.body) : init.body
+      }
+    }
     super(input, init);
   }
 };
