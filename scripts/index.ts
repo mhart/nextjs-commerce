@@ -7,6 +7,7 @@ import NextNodeServer, { NodeRequestHandler } from 'next/dist/server/next-server
 import type { IncomingMessage } from 'node:http';
 
 const NON_BODY_RESPONSES = new Set([101, 204, 205, 304]);
+const textEncoder = new TextEncoder();
 
 // Injected at build time
 const nextConfig: NextConfig = JSON.parse(process.env.__NEXT_PRIVATE_STANDALONE_CONFIG ?? '{}');
@@ -72,17 +73,19 @@ function getWrappedStreams(request: Request, ctx: any) {
 
   const res = new MockedResponse({
     resWriter: (chunk) => {
-      resBodyWriter.write(typeof chunk === 'string' ? Buffer.from(chunk) : chunk).catch((err) => {
-        if (
-          err.message.includes('WritableStream has been closed') ||
-          err.message.includes('Network connection lost')
-        ) {
-          // safe to ignore
-          return;
-        }
-        console.error('Error in resBodyWriter.write');
-        console.error(err);
-      });
+      resBodyWriter
+        .write(typeof chunk === 'string' ? textEncoder.encode(chunk) : chunk)
+        .catch((err) => {
+          if (
+            err.message.includes('WritableStream has been closed') ||
+            err.message.includes('Network connection lost')
+          ) {
+            // safe to ignore
+            return;
+          }
+          console.error('Error in resBodyWriter.write');
+          console.error(err);
+        });
       return true;
     }
   });

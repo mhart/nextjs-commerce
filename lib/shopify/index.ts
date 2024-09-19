@@ -87,7 +87,7 @@ export async function shopifyFetch<T>({
       ...(tags && { next: { tags } })
     });
 
-    const body = await result.json();
+    const body = (await result.json()) as any;
 
     if (body.errors) {
       throw body.errors[0];
