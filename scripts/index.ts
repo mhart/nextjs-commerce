@@ -5,27 +5,60 @@ import { NodeNextRequest, NodeNextResponse } from 'next/dist/server/base-http/no
 import { MockedResponse } from 'next/dist/server/lib/mock-request';
 import NextNodeServer, { NodeRequestHandler } from 'next/dist/server/next-server';
 import type { IncomingMessage } from 'node:http';
+import {
+  createPprResponse,
+  getCachedResponse,
+  internalFetch,
+  isrPut,
+  NON_BODY_RESPONSES,
+  ssgPut
+} from './cache';
 
-const NON_BODY_RESPONSES = new Set([101, 204, 205, 304]);
 const textEncoder = new TextEncoder();
+
+const routeManifest = (globalThis as any).ROUTES_MANIFEST as {
+  staticRoutes: { page: string; regex: string }[];
+  dynamicRoutes: { page: string; regex: string }[];
+  rsc: { contentTypeHeader: string; varyHeader: string };
+};
 
 // Injected at build time
 const nextConfig: NextConfig = JSON.parse(process.env.__NEXT_PRIVATE_STANDALONE_CONFIG ?? '{}');
 
 let requestHandler: NodeRequestHandler | null = null;
 
+globalThis.addEventListener('error', (event: ErrorEvent) => {
+  console.error('globalThis.addEventListener error');
+  console.error(event.error);
+});
+
 export default {
-  async fetch(request: Request, env: any, ctx: any) {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     if (requestHandler == null) {
-      globalThis.process.env = { ...globalThis.process.env, ...env };
+      const strEnv = Object.fromEntries(
+        Object.entries(env).filter(([_, v]) => typeof v === 'string')
+      );
+      globalThis.process.env = { ...globalThis.process.env, ...strEnv };
       requestHandler = new NextNodeServer({
-        conf: { ...nextConfig, env },
+        conf: { ...nextConfig, env: strEnv },
         customServer: false,
         dev: false,
         dir: '',
-        minimalMode: false
+        minimalMode: true
       }).getRequestHandler();
     }
+
+    (globalThis as any).INTERNAL_FETCH = async (input: RequestInfo | URL, init: RequestInit) => {
+      try {
+        return await internalFetch(env.CACHE, input, init);
+      } catch (e) {
+        console.error(e);
+        throw e;
+      }
+    };
+
+    (globalThis as any).ASSET_READ = async (path: string) =>
+      (await env.ASSETS.fetch('http://assets/cdn-cgi/' + path)).text();
 
     const url = new URL(request.url);
 
@@ -33,20 +66,117 @@ export default {
       let imageUrl =
         url.searchParams.get('url') ?? 'https://developers.cloudflare.com/_astro/logo.BU9hiExz.svg';
       if (imageUrl.startsWith('/')) {
-        return env.ASSETS.fetch(new URL(imageUrl, request.url));
+        return env.ASSETS.fetch('http://assets' + imageUrl, {
+          method: request.method,
+          headers: request.headers,
+          body: request.body
+        });
       }
       return fetch(imageUrl, { cf: { cacheEverything: true } } as any);
     }
 
-    const { req, res, webResponse } = getWrappedStreams(request, ctx);
+    const matchedPath = getMatchedPath(request);
 
-    ctx.waitUntil(requestHandler(new NodeNextRequest(req), new NodeNextResponse(res)));
+    const { cacheKey, prerender, cacheResponse } = await getCachedResponse(
+      request,
+      env,
+      routeManifest
+    );
 
-    return await webResponse();
+    if (cacheResponse != null) {
+      // Handle PPR
+      if (prerender.experimentalPPR) {
+        return createPprResponse(
+          request,
+          ctx,
+          cacheKey,
+          cacheResponse,
+          requestHandler,
+          getNextResponse
+        );
+      }
+
+      // Handle SSG
+      if (
+        cacheResponse.headers.get('x-nextjs-cache') === 'PRERENDER' &&
+        prerender.initialRevalidateSeconds === false
+      ) {
+        ctx.waitUntil(ssgPut(env, cacheKey, cacheResponse));
+
+        // Handle ISR
+      } else if (
+        ['STALE', 'PRERENDER'].includes(cacheResponse.headers.get('x-nextjs-cache') ?? '')
+      ) {
+        ctx.waitUntil(
+          isrPut(
+            request,
+            env,
+            ctx,
+            cacheKey,
+            cacheResponse,
+            prerender.dataRoute,
+            requestHandler,
+            getNextResponse
+          )
+        );
+      }
+
+      return cacheResponse;
+    }
+
+    return getNextResponse(request, ctx, matchedPath, requestHandler);
   }
 };
 
-function getWrappedStreams(request: Request, ctx: any) {
+function getMatchedPath(request: Request) {
+  const url = new URL(request.url);
+
+  let matchedPath = '';
+  for (const route of routeManifest.staticRoutes) {
+    if (new RegExp(route.regex).test(url.pathname)) {
+      matchedPath = route.page;
+      break;
+    }
+  }
+  if (!matchedPath) {
+    for (const route of routeManifest.dynamicRoutes) {
+      if (new RegExp(route.regex).test(url.pathname)) {
+        matchedPath = route.page;
+        break;
+      }
+    }
+  }
+
+  const isRscRequest = !!request.headers.get('rsc') || url.pathname.endsWith('.rsc');
+
+  if (matchedPath && isRscRequest && !matchedPath.endsWith('.rsc')) {
+    matchedPath = url.pathname === '/' ? '/index.rsc' : matchedPath + '.rsc';
+  }
+
+  return matchedPath;
+}
+
+async function getNextResponse(
+  request: Request,
+  ctx: ExecutionContext,
+  matchedPath: string,
+  requestHandler: NodeRequestHandler
+) {
+  const { req, res, webResponse } = getWrappedStreams(request, ctx);
+
+  if (matchedPath) {
+    req.headers['x-matched-path'] = matchedPath;
+    res.setHeader('x-matched-path', matchedPath);
+  }
+
+  ctx.waitUntil(
+    Promise.resolve(requestHandler(new NodeNextRequest(req), new NodeNextResponse(res)))
+  );
+
+  return await webResponse();
+}
+
+function getWrappedStreams(request: Request, ctx: ExecutionContext) {
   const url = new URL(request.url);
   const req = (
     request.body ? Readable.fromWeb(request.body as any) : Readable.from([])

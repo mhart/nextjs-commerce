@@ -1,15 +1,18 @@
 #:schema node_modules/wrangler/config-schema.json
 name = "commerce-node"
 main = ".next/standalone/worker.mjs"
-# legacy_assets = ".next/assets"
-compatibility_date = "2024-09-09"
-compatibility_flags = ["nodejs_compat_v2"]
+compatibility_date = "2024-09-26"
+compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 minify = false
 
-[experimental_assets]
+[assets]
 directory = ".next/assets"
 binding = "ASSETS"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "b1c18efef8934dd389e61ad6660f10cb"
 
 [alias]
 "critters" = "./scripts/shim-throw.mjs"
