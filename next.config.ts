@@ -15,3 +15,6 @@ export default {
     ],
   },
 };
+
+import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
+initOpenNextCloudflareForDev();
